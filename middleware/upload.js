@@ -22,7 +22,8 @@ const upload = multer({
     }
     cb(null, true);
   },
-  limits: { fileSize: 1 * 1024 * 1024 * 1024 },
+  // SEC-006: Reduced from 1GB to 100MB to match Cloudinary free tier and prevent abuse
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 export default upload;

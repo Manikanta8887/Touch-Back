@@ -11,7 +11,8 @@ export const saveEndedStream = async (streamData) => {
       streamerId,
       streamTitle,
       startTime,
-      endTime: new Date(),
+      // E-5: Respect endTime provided by caller instead of always overriding with new Date()
+      endTime: streamData.endTime || new Date(),
       chatMessages,
       viewers,
     });

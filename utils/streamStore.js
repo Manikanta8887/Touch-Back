@@ -55,6 +55,10 @@ class StreamStore {
     if (stream) {
       if (!stream.chatMessages) stream.chatMessages = [];
       stream.chatMessages.push(messageObj);
+      // E-8/P3-10: Cap in-memory chat history to last 200 messages to prevent memory growth
+      if (stream.chatMessages.length > 200) {
+        stream.chatMessages = stream.chatMessages.slice(-200);
+      }
       this.setStream(streamId, stream);
     }
   }

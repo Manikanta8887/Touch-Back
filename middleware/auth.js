@@ -25,32 +25,35 @@ export const authenticate = async (req, res, next) => {
     };
     return next();
   } catch (error) {
-    console.warn("🔒 Auth Token verification failed with admin SDK, trying JWT payload fallback:", error.message);
-
-    // Fallback in development mode when service account key is omitted
-    try {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-        if (payload && (payload.user_id || payload.sub || payload.uid)) {
-          const uid = payload.user_id || payload.sub || payload.uid;
-          req.user = {
-            uid: uid,
-            email: payload.email || `${uid}@guest.touchlive.com`,
-            name: payload.name || payload.email?.split("@")[0] || "User",
-            ...payload,
-          };
-          return next();
+    // ⚠️ DEVELOPMENT-ONLY fallback: decode JWT payload WITHOUT verifying signature.
+    // This is intentionally restricted to NODE_ENV=development.
+    // NEVER allow this in production — any crafted JWT would pass.
+    if (process.env.NODE_ENV === "development") {
+      console.warn("🔒 [DEV ONLY] Admin SDK verification failed. Attempting unsigned JWT payload fallback:", error.message);
+      try {
+        const parts = token.split(".");
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+          if (payload && (payload.user_id || payload.sub || payload.uid)) {
+            const uid = payload.user_id || payload.sub || payload.uid;
+            req.user = {
+              uid: uid,
+              email: payload.email || `${uid}@guest.touchlive.com`,
+              name: payload.name || payload.email?.split("@")[0] || "User",
+              ...payload,
+            };
+            return next();
+          }
         }
+      } catch (fallbackErr) {
+        console.error("🔒 [DEV ONLY] Token fallback decoding error:", fallbackErr.message);
       }
-    } catch (fallbackErr) {
-      console.error("🔒 Token fallback decoding error:", fallbackErr.message);
     }
 
+    console.warn("🔒 Auth failed:", error.message);
     return res.status(401).json({
       success: false,
       message: "Unauthorized: Invalid or expired token",
-      error: error.message,
     });
   }
 };

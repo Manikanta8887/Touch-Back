@@ -2,6 +2,47 @@ import User from "../Models/user.js";
 import cloudinary from "../utils/Cloudinary.js";
 import { verifyOwnership } from "../middleware/auth.js";
 
+// PERF-005: Shared helper to fetch Cloudinary videos and merge with MongoDB records
+const generateThumbnail = (videoUrl) => {
+  // BUG-017: Generate a real image thumbnail via Cloudinary URL transformation
+  // Replace video extension with jpg and inject transformation params
+  return videoUrl
+    .replace(/\.(mp4|webm|mov)(\?.*)?$/, ".jpg")
+    .replace("/upload/", "/upload/w_400,h_300,c_fill,so_2/");
+};
+
+const fetchCloudinaryVideos = async (prefix = null) => {
+  const params = {
+    resource_type: "video",
+    max_results: 100,
+    type: "upload",
+  };
+  // E-6: Filter by user-specific folder prefix if provided
+  if (prefix) params.prefix = prefix;
+
+  const cloudinaryResult = await cloudinary.api.resources(params);
+  if (!cloudinaryResult || !cloudinaryResult.resources) return [];
+
+  return cloudinaryResult.resources.map((resItem) => ({
+    url: resItem.secure_url || resItem.url,
+    public_id: resItem.public_id,
+    coverImage: generateThumbnail(resItem.secure_url || resItem.url),
+    sizeInBytes: resItem.bytes || 0,
+    title: resItem.public_id.split("/").pop().replace(/_/g, " "),
+    createdAt: resItem.created_at,
+  }));
+};
+
+const mergeVideos = (cloudinaryVideos, mongoVideos, extraFields = {}) => {
+  const combinedMap = new Map();
+  cloudinaryVideos.forEach((v) => combinedMap.set(v.public_id, { ...v, ...extraFields }));
+  mongoVideos.forEach((v) => {
+    const vObj = v.toObject ? v.toObject() : v;
+    combinedMap.set(vObj.public_id, { ...combinedMap.get(vObj.public_id), ...vObj });
+  });
+  return Array.from(combinedMap.values());
+};
+
 export const uploadVideo = async (req, res) => {
   const { uid } = req.params;
   const { title } = req.body;
@@ -29,7 +70,8 @@ export const uploadVideo = async (req, res) => {
     }
 
     const { path: url, filename: public_id, size } = req.file;
-    const coverImage = url;
+    // BUG-017: Generate a proper thumbnail instead of using the video url
+    const coverImage = generateThumbnail(url);
 
     const newVideo = {
       url,
@@ -54,7 +96,7 @@ export const uploadVideo = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Upload failed",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
@@ -64,39 +106,17 @@ export const getUserVideos = async (req, res) => {
     const { uid } = req.params;
     const user = await User.findOne({ uid });
 
-    let mongoVideos = user ? (user.videos || []) : [];
+    const mongoVideos = user ? (user.videos || []) : [];
     let cloudinaryVideos = [];
 
     try {
-      const cloudinaryResult = await cloudinary.api.resources({
-        resource_type: "video",
-        max_results: 100,
-      });
-
-      if (cloudinaryResult && cloudinaryResult.resources) {
-        cloudinaryVideos = cloudinaryResult.resources.map((resItem) => ({
-          url: resItem.secure_url || resItem.url,
-          public_id: resItem.public_id,
-          coverImage: resItem.secure_url || resItem.url,
-          sizeInBytes: resItem.bytes || 0,
-          title: resItem.public_id.split("/").pop().replace(/_/g, " "),
-          createdAt: resItem.created_at,
-        }));
-      }
+      // E-6: Use user-specific prefix to filter only this user's Cloudinary videos
+      cloudinaryVideos = await fetchCloudinaryVideos(`touch_live_videos/${uid}/`);
     } catch (cErr) {
-      console.warn("Cloudinary direct fetch warning:", cErr.message);
+      console.warn("Cloudinary user videos fetch warning:", cErr.message);
     }
 
-    const combinedMap = new Map();
-    // Insert Cloudinary videos first
-    cloudinaryVideos.forEach((v) => combinedMap.set(v.public_id, v));
-    // Overlay/merge MongoDB videos
-    mongoVideos.forEach((v) => {
-      const vObj = v.toObject ? v.toObject() : v;
-      combinedMap.set(vObj.public_id, { ...combinedMap.get(vObj.public_id), ...vObj });
-    });
-
-    const finalVideos = Array.from(combinedMap.values());
+    const finalVideos = mergeVideos(cloudinaryVideos, mongoVideos);
 
     return res.json({
       success: true,
@@ -108,7 +128,7 @@ export const getUserVideos = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error fetching user videos",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
@@ -116,7 +136,7 @@ export const getUserVideos = async (req, res) => {
 export const getAllVideos = async (_req, res) => {
   try {
     const users = await User.find({}, "name uid videos");
-    let mongoVideos = users.flatMap((u) =>
+    const mongoVideos = users.flatMap((u) =>
       (u.videos || []).map((v) => ({
         ...(v.toObject ? v.toObject() : v),
         uploaderName: u.name || "Streamer",
@@ -125,34 +145,13 @@ export const getAllVideos = async (_req, res) => {
 
     let cloudinaryVideos = [];
     try {
-      const cloudinaryResult = await cloudinary.api.resources({
-        resource_type: "video",
-        max_results: 100,
-      });
-
-      if (cloudinaryResult && cloudinaryResult.resources) {
-        cloudinaryVideos = cloudinaryResult.resources.map((resItem) => ({
-          url: resItem.secure_url || resItem.url,
-          public_id: resItem.public_id,
-          coverImage: resItem.secure_url || resItem.url,
-          sizeInBytes: resItem.bytes || 0,
-          title: resItem.public_id.split("/").pop().replace(/_/g, " "),
-          uploaderName: "Touch Live Streamer",
-          createdAt: resItem.created_at,
-        }));
-      }
+      // PERF-005: Use shared helper; no user prefix = all videos
+      cloudinaryVideos = await fetchCloudinaryVideos();
     } catch (cErr) {
-      console.warn("Cloudinary direct fetch warning:", cErr.message);
+      console.warn("Cloudinary all videos fetch warning:", cErr.message);
     }
 
-    const combinedMap = new Map();
-    cloudinaryVideos.forEach((v) => combinedMap.set(v.public_id, v));
-    mongoVideos.forEach((v) => {
-      const vObj = v.toObject ? v.toObject() : v;
-      combinedMap.set(vObj.public_id, { ...combinedMap.get(vObj.public_id), ...vObj });
-    });
-
-    const finalVideos = Array.from(combinedMap.values());
+    const finalVideos = mergeVideos(cloudinaryVideos, mongoVideos, { uploaderName: "Touch Live Streamer" });
 
     return res.json({
       success: true,
@@ -164,13 +163,18 @@ export const getAllVideos = async (_req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error fetching all videos",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
 
 export const deleteVideo = async (req, res) => {
-  const { public_id } = req.params;
+  // BUG-007/P2-3: Accept public_id as a query param to handle slashes in Cloudinary folder paths
+  const public_id = req.query.public_id;
+
+  if (!public_id) {
+    return res.status(400).json({ success: false, message: "public_id query parameter is required" });
+  }
 
   try {
     const ownerUser = await User.findOne({ "videos.public_id": public_id });
@@ -203,7 +207,7 @@ export const deleteVideo = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to delete video",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
