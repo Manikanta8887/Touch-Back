@@ -38,6 +38,7 @@ const ALLOWED_ORIGINS = [...new Set([...defaultOrigins, ...customOrigins])];
 
 const corsOptions = {
   origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, Postman, mobile apps)
     if (!origin) return callback(null, true);
     if (
       ALLOWED_ORIGINS.includes(origin) ||
@@ -45,7 +46,11 @@ const corsOptions = {
     ) {
       return callback(null, true);
     }
-    return callback(null, true); // Permissive fallback to prevent connection drops in deployment
+    // In development, allow all origins for convenience; block unknown origins in production
+    if (process.env.NODE_ENV !== "production") {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS: Origin '${origin}' not allowed`));
   },
   methods: ["GET", "POST", "DELETE", "PUT"],
   credentials: true,
@@ -141,6 +146,8 @@ io.on("connection", (socket) => {
       }
       io.to(streamId).emit("update-streams", streamStore.getAllStreams());
     }
+    // P2-6/BUG-010: Clear currentStreamId so disconnect doesn't double-decrement viewer count
+    socket.data.currentStreamId = null;
   });
 
   socket.on("start-stream", (data, ack) => {
@@ -184,6 +191,12 @@ io.on("connection", (socket) => {
       socket.join(streamerId);
       socket.data.streamerId = streamerId;
       streamStore.setStreamerSocket(streamerId, socket.id);
+      // P3-11/E-9: Clear any pending disconnect timeout for this stream to prevent false stream-end
+      if (streamStore.disconnectTimers?.has(streamerId)) {
+        clearTimeout(streamStore.disconnectTimers.get(streamerId));
+        streamStore.disconnectTimers.delete(streamerId);
+        logger.info(`Cleared disconnect timeout for rejoining streamer ${streamerId}`);
+      }
       socket.emit("stream-info", {
         ...stream,
         streamerSocketId: socket.id,
@@ -207,17 +220,22 @@ io.on("connection", (socket) => {
   });
 
   socket.on("chat-message", (chatData) => {
+    // SEC-005: Validate chat message content and length
+    if (!chatData.message || typeof chatData.message !== "string") return;
+    const trimmed = chatData.message.trim();
+    if (!trimmed || trimmed.length > 500) return;
+
     const sid = chatData.streamId || socket.data.currentStreamId;
     logger.socket("chat-message", socket.id, `${chatData.username} @ ${sid}`);
     const stream = streamStore.getStream(sid);
     if (stream) {
       const msgObj = {
         sender: chatData.username,
-        message: chatData.message,
+        message: trimmed,
         timestamp: new Date(),
       };
       streamStore.addChatMessage(sid, msgObj);
-      io.to(sid).emit("chat-message", chatData);
+      io.to(sid).emit("chat-message", { ...chatData, message: trimmed });
     }
   });
 
@@ -236,6 +254,9 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", async () => {
     logger.socket("Disconnected", socket.id);
+
+    // P2-6/BUG-010: Only decrement if leave-stream was NOT already called
+    // (leave-stream clears socket.data.currentStreamId to prevent double-decrement)
     const csid = socket.data.currentStreamId;
     if (csid) {
       const newViewerCount = streamStore.updateViewerCount(csid, -1);
@@ -248,7 +269,10 @@ io.on("connection", (socket) => {
 
     const strid = socket.data.streamerId;
     if (strid && streamStore.getStream(strid)) {
-      setTimeout(async () => {
+      // P3-11/E-9: Store timeout ID per stream so rejoin can cancel it
+      if (!streamStore.disconnectTimers) streamStore.disconnectTimers = new Map();
+      const timer = setTimeout(async () => {
+        streamStore.disconnectTimers?.delete(strid);
         const still = [...io.sockets.sockets.values()].some(
           (s) => s.data.streamerId === strid
         );
@@ -264,6 +288,7 @@ io.on("connection", (socket) => {
           }
         }
       }, 5000);
+      streamStore.disconnectTimers.set(strid, timer);
     }
   });
 });

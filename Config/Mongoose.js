@@ -7,17 +7,18 @@ const connectDB = async () => {
   const mongoURI = process.env.MONGO_URI;
 
   if (!mongoURI) {
-    console.warn(
-      "⚠️ MONGO_URI is missing in environment variables. Please create a .env file based on .env.example."
+    console.error(
+      "❌ MONGO_URI is missing in environment variables. Please create a .env file based on .env.example."
     );
-    return;
+    process.exit(1);
   }
 
   try {
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 10000 });
     console.log("✅ MongoDB Connected Successfully");
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error.message);
+    process.exit(1);
   }
 };
 

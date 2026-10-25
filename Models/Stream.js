@@ -19,5 +19,5 @@ const StreamSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const Stream = mongoose.model("Stream", StreamSchema);
+const Stream = mongoose.models.Stream || mongoose.model("Stream", StreamSchema);
 export default Stream;

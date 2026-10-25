@@ -6,6 +6,7 @@ import { validateUserSave } from "../middleware/validator.js";
 const router = express.Router();
 
 router.post("/", authenticate, validateUserSave, saveUser);
-router.get("/", getAllUsers);
+// P2-1/SEC-003: Authenticated route — no email in public responses
+router.get("/", authenticate, getAllUsers);
 
 export default router;

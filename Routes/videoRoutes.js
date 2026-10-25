@@ -21,9 +21,10 @@ router.post(
   uploadVideo
 );
 
-router.get("/:uid", getUserVideos);
 router.get("/", getAllVideos);
+router.get("/:uid", getUserVideos);
 
-router.delete("/:public_id", authenticate, deleteVideo);
+// public_id can contain slashes (e.g. touch_live_videos/uid/123), so accept it via query param
+router.delete("/", authenticate, deleteVideo);
 
 export default router;
