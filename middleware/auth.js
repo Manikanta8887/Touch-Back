@@ -1,4 +1,4 @@
-import admin from "../Config/firebaseAdmin.js";
+import admin, { auth } from "../Config/firebaseAdmin.js";
 
 /**
  * Express middleware to verify Firebase ID token passed in Authorization header.
@@ -17,7 +17,7 @@ export const authenticate = async (req, res, next) => {
   const token = authHeader.split("Bearer ")[1];
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(token);
+    const decodedToken = await (auth?.verifyIdToken ? auth.verifyIdToken(token) : admin.auth().verifyIdToken(token));
     req.user = {
       uid: decodedToken.uid,
       email: decodedToken.email,
