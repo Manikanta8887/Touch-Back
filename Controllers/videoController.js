@@ -133,13 +133,17 @@ export const getUserVideos = async (req, res) => {
   }
 };
 
-export const getAllVideos = async (_req, res) => {
+export const getAllVideos = async (req, res) => {
   try {
+    const page = req.query?.page ? Math.max(1, parseInt(req.query.page, 10)) : null;
+    const limit = req.query?.limit ? Math.min(100, Math.max(1, parseInt(req.query.limit, 10))) : 20;
+
     const users = await User.find({}, "name uid videos");
     const mongoVideos = users.flatMap((u) =>
       (u.videos || []).map((v) => ({
         ...(v.toObject ? v.toObject() : v),
         uploaderName: u.name || "Streamer",
+        uploaderUid: u.uid,
       }))
     );
 
@@ -152,11 +156,16 @@ export const getAllVideos = async (_req, res) => {
     }
 
     const finalVideos = mergeVideos(cloudinaryVideos, mongoVideos, { uploaderName: "Touch Live Streamer" });
+    const paginated = page ? finalVideos.slice((page - 1) * limit, page * limit) : finalVideos;
 
     return res.json({
       success: true,
       message: "Fetched all videos successfully",
-      data: { videos: finalVideos },
+      data: {
+        videos: paginated,
+        total: finalVideos.length,
+        ...(page && { page, limit, totalPages: Math.ceil(finalVideos.length / limit) }),
+      },
     });
   } catch (err) {
     console.error("getAllVideos error:", err);

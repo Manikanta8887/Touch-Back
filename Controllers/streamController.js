@@ -1,4 +1,5 @@
 import Stream from "../Models/Stream.js";
+import streamStore from "../utils/streamStore.js";
 
 export const saveEndedStream = async (streamData) => {
   try {
@@ -34,7 +35,8 @@ export const getEndedStreams = async () => {
 
 export const getActiveStreams = async (_req, res) => {
   try {
-    const active = await Stream.find({ endTime: null }).select("streamerId streamTitle startTime chatMessages viewers");
+    // BUG-016: Query real-time active streams from streamStore rather than dead MongoDB records
+    const active = streamStore.getAllStreams();
     return res.json({
       success: true,
       message: "Fetched active streams",
@@ -44,7 +46,7 @@ export const getActiveStreams = async (_req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error retrieving active streams",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
@@ -67,7 +69,7 @@ export const getStreamChat = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error retrieving chat messages",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };
@@ -85,7 +87,7 @@ export const getPastStreams = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error retrieving past streams",
-      error: err.message,
+      ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
   }
 };

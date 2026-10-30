@@ -22,6 +22,7 @@ const server = createServer(app);
 const PORT = process.env.PORT || 5000;
 
 const defaultOrigins = [
+  "https://touch-live.vercel.app",
   "https://full-stack-project-mani.vercel.app",
   "https://full-stack-project-rho.vercel.app",
   "https://global.xirsys.net",
@@ -34,15 +35,19 @@ const customOrigins = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(",").map((u) => u.trim())
   : [];
 
-const ALLOWED_ORIGINS = [...new Set([...defaultOrigins, ...customOrigins])];
+const ALLOWED_ORIGINS = [
+  ...new Set(
+    [...defaultOrigins, ...customOrigins].map((u) => u.replace(/\/+$/, ""))
+  ),
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (server-to-server, Postman, mobile apps)
     if (!origin) return callback(null, true);
     if (
-      ALLOWED_ORIGINS.includes(origin) ||
-      /^https:\/\/.*\.vercel\.app$/.test(origin)
+      ALLOWED_ORIGINS.includes(origin.replace(/\/+$/, "")) ||
+      /^https:\/\/.*\.vercel\.app\/?$/.test(origin)
     ) {
       return callback(null, true);
     }
