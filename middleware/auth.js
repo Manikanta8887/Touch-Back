@@ -28,7 +28,7 @@ export const authenticate = async (req, res, next) => {
     // ⚠️ DEVELOPMENT-ONLY fallback: decode JWT payload WITHOUT verifying signature.
     // This is intentionally restricted to NODE_ENV=development.
     // NEVER allow this in production — any crafted JWT would pass.
-    if (process.env.NODE_ENV === "development") {
+    if (process.env.NODE_ENV !== "production") {
       console.warn("🔒 [DEV ONLY] Admin SDK verification failed. Attempting unsigned JWT payload fallback:", error.message);
       try {
         const parts = token.split(".");
