@@ -8,12 +8,15 @@ export const saveEndedStream = async (streamData) => {
       console.error("Missing stream data for saveEndedStream:", streamData);
       return;
     }
+    const calculatedEndTime = streamData.endTime || new Date();
+    const calculatedDuration = Math.max(0, Math.floor((new Date(calculatedEndTime).getTime() - new Date(startTime).getTime()) / 1000));
+
     const newStream = new Stream({
       streamerId,
       streamTitle,
       startTime,
-      // E-5: Respect endTime provided by caller instead of always overriding with new Date()
-      endTime: streamData.endTime || new Date(),
+      endTime: calculatedEndTime,
+      duration: calculatedDuration,
       chatMessages,
       viewers,
     });
@@ -35,7 +38,6 @@ export const getEndedStreams = async () => {
 
 export const getActiveStreams = async (_req, res) => {
   try {
-    // BUG-016: Query real-time active streams from streamStore rather than dead MongoDB records
     const active = streamStore.getAllStreams();
     return res.json({
       success: true,

@@ -5,6 +5,8 @@ import {
   getUserVideos,
   getAllVideos,
   deleteVideo,
+  likeVideo,
+  viewVideo,
 } from "../Controllers/videoController.js";
 import { authenticate } from "../middleware/auth.js";
 import { strictLimiter } from "../middleware/rateLimiter.js";
@@ -23,8 +25,10 @@ router.post(
 
 router.get("/", getAllVideos);
 router.get("/:uid", getUserVideos);
+router.post("/like/:videoId", likeVideo);
+router.post("/view/:videoId", viewVideo);
 
-// public_id can contain slashes (e.g. touch_live_videos/uid/123), so accept it via query param
+// public_id can contain slashes, so accept it via query param
 router.delete("/", authenticate, deleteVideo);
 
 export default router;

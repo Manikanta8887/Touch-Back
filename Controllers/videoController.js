@@ -2,10 +2,7 @@ import User from "../Models/user.js";
 import cloudinary from "../utils/Cloudinary.js";
 import { verifyOwnership } from "../middleware/auth.js";
 
-// PERF-005: Shared helper to fetch Cloudinary videos and merge with MongoDB records
 const generateThumbnail = (videoUrl) => {
-  // BUG-017: Generate a real image thumbnail via Cloudinary URL transformation
-  // Replace video extension with jpg and inject transformation params
   return videoUrl
     .replace(/\.(mp4|webm|mov)(\?.*)?$/, ".jpg")
     .replace("/upload/", "/upload/w_400,h_300,c_fill,so_2/");
@@ -17,7 +14,6 @@ const fetchCloudinaryVideos = async (prefix = null) => {
     max_results: 100,
     type: "upload",
   };
-  // E-6: Filter by user-specific folder prefix if provided
   if (prefix) params.prefix = prefix;
 
   const cloudinaryResult = await cloudinary.api.resources(params);
@@ -30,12 +26,16 @@ const fetchCloudinaryVideos = async (prefix = null) => {
     sizeInBytes: resItem.bytes || 0,
     title: resItem.public_id.split("/").pop().replace(/_/g, " "),
     createdAt: resItem.created_at,
+    description: "",
+    views: 0,
+    likes: 0,
+    duration: "0:00",
   }));
 };
 
 const mergeVideos = (cloudinaryVideos, mongoVideos, extraFields = {}) => {
   const combinedMap = new Map();
-  cloudinaryVideos.forEach((v) => combinedMap.set(v.public_id, { ...v, ...extraFields }));
+  cloudinaryVideos.forEach((v) => combinedMap.set(v.public_id, { views: 0, likes: 0, description: "", duration: "0:00", ...v, ...extraFields }));
   mongoVideos.forEach((v) => {
     const vObj = v.toObject ? v.toObject() : v;
     combinedMap.set(vObj.public_id, { ...combinedMap.get(vObj.public_id), ...vObj });
@@ -45,7 +45,7 @@ const mergeVideos = (cloudinaryVideos, mongoVideos, extraFields = {}) => {
 
 export const uploadVideo = async (req, res) => {
   const { uid } = req.params;
-  const { title } = req.body;
+  const { title, description } = req.body;
 
   if (!verifyOwnership(req, uid)) {
     return res.status(403).json({
@@ -70,7 +70,6 @@ export const uploadVideo = async (req, res) => {
     }
 
     const { path: url, filename: public_id, size } = req.file;
-    // BUG-017: Generate a proper thumbnail instead of using the video url
     const coverImage = generateThumbnail(url);
 
     const newVideo = {
@@ -79,6 +78,10 @@ export const uploadVideo = async (req, res) => {
       coverImage,
       sizeInBytes: size,
       title: title || "Untitled Video",
+      description: description || "",
+      views: 0,
+      likes: 0,
+      duration: "0:00",
     };
 
     user.videos.push(newVideo);
@@ -110,7 +113,6 @@ export const getUserVideos = async (req, res) => {
     let cloudinaryVideos = [];
 
     try {
-      // E-6: Use user-specific prefix to filter only this user's Cloudinary videos
       cloudinaryVideos = await fetchCloudinaryVideos(`touch_live_videos/${uid}/`);
     } catch (cErr) {
       console.warn("Cloudinary user videos fetch warning:", cErr.message);
@@ -149,7 +151,6 @@ export const getAllVideos = async (req, res) => {
 
     let cloudinaryVideos = [];
     try {
-      // PERF-005: Use shared helper; no user prefix = all videos
       cloudinaryVideos = await fetchCloudinaryVideos();
     } catch (cErr) {
       console.warn("Cloudinary all videos fetch warning:", cErr.message);
@@ -178,7 +179,6 @@ export const getAllVideos = async (req, res) => {
 };
 
 export const deleteVideo = async (req, res) => {
-  // BUG-007/P2-3: Accept public_id as a query param to handle slashes in Cloudinary folder paths
   const public_id = req.query.public_id;
 
   if (!public_id) {
@@ -195,7 +195,6 @@ export const deleteVideo = async (req, res) => {
       });
     }
 
-    // Destroy on Cloudinary
     try {
       await cloudinary.uploader.destroy(public_id, { resource_type: "video" });
     } catch (cErr) {
@@ -218,5 +217,61 @@ export const deleteVideo = async (req, res) => {
       message: "Failed to delete video",
       ...(process.env.NODE_ENV !== "production" && { error: err.message }),
     });
+  }
+};
+
+export const likeVideo = async (req, res) => {
+  const { videoId } = req.params;
+  try {
+    let user = await User.findOne({ "videos.public_id": videoId });
+    if (!user) {
+      user = await User.findOne({ "videos._id": videoId });
+      if (user) {
+        const vid = user.videos.id(videoId);
+        if (vid) {
+          vid.likes = (vid.likes || 0) + 1;
+          await user.save();
+          return res.json({ success: true, likes: vid.likes });
+        }
+      }
+      return res.json({ success: true, likes: 1 });
+    }
+    const vid = user.videos.find((v) => v.public_id === videoId);
+    if (vid) {
+      vid.likes = (vid.likes || 0) + 1;
+      await user.save();
+      return res.json({ success: true, likes: vid.likes });
+    }
+    return res.json({ success: true, likes: 1 });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const viewVideo = async (req, res) => {
+  const { videoId } = req.params;
+  try {
+    let user = await User.findOne({ "videos.public_id": videoId });
+    if (!user) {
+      user = await User.findOne({ "videos._id": videoId });
+      if (user) {
+        const vid = user.videos.id(videoId);
+        if (vid) {
+          vid.views = (vid.views || 0) + 1;
+          await user.save();
+          return res.json({ success: true, views: vid.views });
+        }
+      }
+      return res.json({ success: true, views: 1 });
+    }
+    const vid = user.videos.find((v) => v.public_id === videoId);
+    if (vid) {
+      vid.views = (vid.views || 0) + 1;
+      await user.save();
+      return res.json({ success: true, views: vid.views });
+    }
+    return res.json({ success: true, views: 1 });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
