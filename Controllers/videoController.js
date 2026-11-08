@@ -85,6 +85,7 @@ export const uploadVideo = async (req, res) => {
     };
 
     user.videos.push(newVideo);
+    user.storageUsed = (user.storageUsed || 0) + (size || 0);
     await user.save();
 
     const createdVideo = user.videos[user.videos.length - 1];
@@ -203,6 +204,9 @@ export const deleteVideo = async (req, res) => {
 
     if (ownerUser) {
       ownerUser.videos = ownerUser.videos.filter((v) => v.public_id !== public_id);
+      ownerUser.storageUsed = Array.isArray(ownerUser.videos)
+        ? ownerUser.videos.reduce((sum, v) => sum + (v.sizeInBytes || 0), 0)
+        : 0;
       await ownerUser.save();
     }
 

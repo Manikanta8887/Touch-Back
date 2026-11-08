@@ -46,9 +46,21 @@ const UserSchema = new mongoose.Schema(
       type: [String],
       default: []
     },
+    subscribedTo: {
+      type: [String],
+      default: []
+    },
     videos: {
       type: [videoSchema],
       default: []
+    },
+    storageUsed: {
+      type: Number,
+      default: 0
+    },
+    storageLimit: {
+      type: Number,
+      default: 1073741824 // 1 GB allocation in bytes
     }
   },
   { timestamps: true }

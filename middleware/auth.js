@@ -1,7 +1,12 @@
 import admin, { auth } from "../Config/firebaseAdmin.js";
+import { verifyAccessToken, verifyIdToken } from "../utils/jwt.js";
 
 /**
- * Express middleware to verify Firebase ID token passed in Authorization header.
+ * Express middleware to verify token passed in Authorization header.
+ * Supports:
+ * 1. Custom Access Token (JWT with HS256)
+ * 2. Custom ID Token (JWT with HS256)
+ * 3. Firebase ID Token (Firebase Admin SDK & claims fallback)
  * Attaches decoded user info to req.user.
  */
 export const authenticate = async (req, res, next) => {
@@ -14,10 +19,63 @@ export const authenticate = async (req, res, next) => {
     });
   }
 
-  const token = authHeader.split("Bearer ")[1];
-  const expectedProjectId = process.env.FIREBASE_PROJECT_ID || "touch-live-7a1f8";
+  const token = authHeader.split("Bearer ")[1]?.trim();
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Token missing",
+    });
+  }
 
-  // 1. Primary: Verify token signature via Firebase Admin SDK
+  // 1. Primary: Verify custom Access Token
+  try {
+    const decoded = verifyAccessToken(token);
+    if (decoded && decoded.uid) {
+      req.user = {
+        uid: decoded.uid,
+        email: decoded.email,
+        name: decoded.name,
+        tokenType: "access",
+        ...decoded,
+      };
+      return next();
+    }
+  } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        tokenExpired: true,
+        message: "Unauthorized: Access token has expired",
+      });
+    }
+    // If not expired, it may be an ID token or Firebase token, continue checking
+  }
+
+  // 2. Secondary: Verify custom ID Token
+  try {
+    const decodedId = verifyIdToken(token);
+    if (decodedId && decodedId.uid) {
+      req.user = {
+        uid: decodedId.uid,
+        email: decodedId.email,
+        name: decodedId.name,
+        tokenType: "id",
+        ...decodedId,
+      };
+      return next();
+    }
+  } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        tokenExpired: true,
+        message: "Unauthorized: ID token has expired",
+      });
+    }
+  }
+
+  // 3. Fallback: Firebase Admin SDK
+  const expectedProjectId = process.env.FIREBASE_PROJECT_ID || "touch-live-7a1f8";
   try {
     if (auth?.verifyIdToken) {
       const decodedToken = await auth.verifyIdToken(token);
@@ -29,10 +87,10 @@ export const authenticate = async (req, res, next) => {
       return next();
     }
   } catch (error) {
-    console.warn("🔒 Firebase Admin SDK token verification warning:", error.message);
+    // Continue to claims fallback
   }
 
-  // 2. Resilient Fallback: Verify Firebase JWT claims (audience, issuer, expiration, uid)
+  // 4. Fallback: Resilient Firebase JWT claims decoding
   try {
     const parts = token.split(".");
     if (parts.length === 3) {
