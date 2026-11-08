@@ -1,14 +1,17 @@
 import mongoose from "mongoose";
 
 const videoSchema = new mongoose.Schema({
-  url:         { type: String, required: true },
-  public_id:   { type: String, required: true },
-  coverImage:  { type: String, required: true },
+  url: { type: String, required: true },
+  public_id: { type: String, required: true },
+  coverImage: { type: String, required: true },
   sizeInBytes: { type: Number, required: true },
-  title:       { type: String, default: "Untitled Video" },  
-  uploadedAt:  { type: Date,   default: Date.now }
+  title: { type: String, default: "Untitled Video" },
+  description: { type: String, default: "" },
+  views: { type: Number, default: 0 },
+  likes: { type: Number, default: 0 },
+  duration: { type: String, default: "0:00" },
+  uploadedAt: { type: Date, default: Date.now }
 });
-
 
 const UserSchema = new mongoose.Schema(
   {
@@ -33,11 +36,31 @@ const UserSchema = new mongoose.Schema(
     },
     bio: {
       type: String,
-      default: "Streamer"
+      default: ""
+    },
+    subscribersCount: {
+      type: Number,
+      default: 0
+    },
+    subscribers: {
+      type: [String],
+      default: []
+    },
+    subscribedTo: {
+      type: [String],
+      default: []
     },
     videos: {
       type: [videoSchema],
       default: []
+    },
+    storageUsed: {
+      type: Number,
+      default: 0
+    },
+    storageLimit: {
+      type: Number,
+      default: 1073741824 // 1 GB allocation in bytes
     }
   },
   { timestamps: true }

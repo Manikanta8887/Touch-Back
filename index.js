@@ -11,6 +11,7 @@ import profileRoutes from "./Routes/profileRoutes.js";
 import streamRoutes from "./Routes/streamRoutes.js";
 import videoRoutes from "./Routes/videoRoutes.js";
 import turnRoutes from "./Routes/turnRoutes.js";
+import authRoutes from "./Routes/authRoutes.js";
 import { saveEndedStream, getEndedStreams } from "./Controllers/streamController.js";
 import { apiLimiter } from "./middleware/rateLimiter.js";
 import streamStore from "./utils/streamStore.js";
@@ -77,6 +78,7 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/streams", streamRoutes);
 app.use("/api/videos", videoRoutes);
 app.use("/api/turn-credentials", turnRoutes);
+app.use("/api/auth", authRoutes);
 
 
 // Socket.io Connection & Streaming Logic
